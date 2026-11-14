@@ -8,9 +8,16 @@ load_dotenv()
 # Get MongoDB connection string
 MONGODB_URI = os.getenv("MONGODB_URI")
 if not MONGODB_URI:
+    try:
+        import streamlit as st
+        MONGODB_URI = st.secrets.get("MONGODB_URI")
+    except Exception:
+        MONGODB_URI = None
+
+if not MONGODB_URI:
     raise RuntimeError(
-        "MongoDB connection failed: MONGODB_URI environment variable is missing or empty. "
-        "Please check your .env configuration file."
+        "MongoDB connection failed: MONGODB_URI is not configured. "
+        "Please check your .env configuration file or Streamlit secrets (st.secrets)."
     )
 
 # Connect to MongoDB Atlas with 5-second timeout

@@ -1509,7 +1509,18 @@ def cb_admin_login() -> None:
     entered = (st.session_state.get("admin_pwd_input") or "").strip()
     configured_pwd = os.getenv("ADMIN_PASSWORD")
     if not configured_pwd:
-        configured_pwd = "admin"
+        try:
+            configured_pwd = st.secrets.get("ADMIN_PASSWORD")
+        except Exception:
+            configured_pwd = None
+
+    if configured_pwd is not None:
+        configured_pwd = str(configured_pwd).strip()
+
+    if not configured_pwd:
+        flash("error", "Administrator password is not configured. Access denied.")
+        return
+
     if entered == configured_pwd:
         st.session_state["admin_authenticated"] = True
         st.session_state["admin_pwd_input"] = ""
