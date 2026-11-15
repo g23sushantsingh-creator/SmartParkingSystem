@@ -18,10 +18,19 @@ Architectural Role:
 
 import sys
 import os
+import time
 import html
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 from typing import Optional, List, Dict, Any
+
+# Ensure process timezone is set to Asia/Kolkata on Linux (Streamlit Community Cloud)
+if hasattr(time, "tzset"):
+    os.environ["TZ"] = "Asia/Kolkata"
+    time.tzset()
+
+IST = ZoneInfo("Asia/Kolkata")
 
 # Ensure project root is on sys.path for direct module imports
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -671,8 +680,27 @@ def render(markup: str) -> None:
     st.markdown(markup, unsafe_allow_html=True)
 
 
+def calc_duration_hrs(entry_time: Any) -> float:
+    """Calculates elapsed parking duration in hours safely across naive and aware datetimes."""
+    if not isinstance(entry_time, datetime):
+        return 0.0
+    now_dt = datetime.now(entry_time.tzinfo) if entry_time.tzinfo else datetime.now(IST)
+    if entry_time.tzinfo and not now_dt.tzinfo:
+        now_dt = now_dt.replace(tzinfo=entry_time.tzinfo)
+    elif not entry_time.tzinfo and now_dt.tzinfo:
+        now_dt = now_dt.astimezone(IST).replace(tzinfo=None)
+    return round(max(0.0, (now_dt - entry_time).total_seconds()) / 3600.0, 2)
+
+
 def fmt_dt(value: Any, with_date: bool = False) -> str:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            pass
     if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(IST)
         return value.strftime("%d %b %Y, %I:%M %p") if with_date else value.strftime("%I:%M %p")
     return "—" if value is None else str(value)
 
@@ -783,7 +811,14 @@ def activity_timeline_html(actions: List[Dict[str, Any]]) -> str:
         
         # Display timestamp with seconds precision to distinguish rapid/batch events
         ts = act.get("timestamp")
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
         if isinstance(ts, datetime):
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(IST)
             ts_str = ts.strftime("%I:%M:%S %p")
         elif ts:
             ts_str = str(ts)
@@ -1234,7 +1269,7 @@ def slot_inspector_panel_html(slot: ParkingSlot) -> str:
 
     extra_cells = ""
     if is_occ and v:
-        duration_hrs = round((datetime.now() - v.entry_time).total_seconds() / 3600.0, 2)
+        duration_hrs = calc_duration_hrs(v.entry_time)
         extra_cells = (
             f'<div class="sip-cell"><span class="sip-lbl">Driver / Owner</span><b class="sip-val">{e(owner_text)}</b></div>'
             f'<div class="sip-cell"><span class="sip-lbl">Entry Time</span><b class="sip-val">{e(time_text)} (~{duration_hrs:.2f} hrs)</b></div>'
@@ -1824,7 +1859,7 @@ def render_sidebar() -> None:
 
 def render_topbar() -> None:
     online = st.session_state.connection_status == "Online"
-    now = datetime.now().strftime("%a, %b %d, %Y • %I:%M %p")
+    now = datetime.now(IST).strftime("%a, %b %d, %Y • %I:%M %p")
     role = st.session_state.get("portal_role", "customer")
     is_admin = role == "admin" and st.session_state.get("admin_authenticated", False)
 
@@ -2066,7 +2101,7 @@ def page_cust_status() -> None:
 
             if found_slot and found_slot.vehicle:
                 v = found_slot.vehicle
-                duration_hrs = round((datetime.now() - v.entry_time).total_seconds() / 3600.0, 2)
+                duration_hrs = calc_duration_hrs(v.entry_time)
                 fee_est = round(max(1.0, duration_hrs) * ParkingManager.DEFAULT_HOURLY_RATE, 2)
 
                 render(
@@ -2162,7 +2197,7 @@ def page_dashboard() -> None:
             mgr = get_manager()
             fresh_slots = mgr.get_all_slots()
             cur_stats = slot_stats(fresh_slots)
-            now_str = datetime.now().strftime("%I:%M:%S %p")
+            now_str = datetime.now(IST).strftime("%I:%M:%S %p")
 
             with st.container(key="card_lot"):
                 render(f'<div class="card-h" style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">'
